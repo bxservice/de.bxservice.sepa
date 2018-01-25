@@ -23,6 +23,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.logging.Level;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -35,6 +36,7 @@ import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 
+import org.adempiere.exceptions.AdempiereException;
 import org.compiere.model.I_C_BankAccount;
 import org.compiere.model.I_C_Invoice;
 import org.compiere.model.I_C_PaySelection;
@@ -60,6 +62,7 @@ import org.w3c.dom.Element;
  * @author integratio/pb
  * @author mbozem@bozem.de
  * 
+ * modified by Diego Ruiz - Bx Service GmbH
  */
 public class SEPAPaymentExport implements PaymentExport {
 	/** Logger */
@@ -75,6 +78,11 @@ public class SEPAPaymentExport implements PaymentExport {
 	private static final String SEPA_CREDIT_TRANSFER = "pain.001.003.03"; //Use for payments
 	private static final String SEPA_DIRECT_DEBIT    = "pain.008.003.02"; //Use for collection
 
+	private ArrayList<MPaySelectionCheck> b2bFirstPayments;
+	private ArrayList<MPaySelectionCheck> cor1FirstPayments;
+	private ArrayList<MPaySelectionCheck> b2bRcurPayments;
+	private ArrayList<MPaySelectionCheck> cor1RcurPayments;
+	
 	private boolean directDebit = false;
 	private String documentType;
 
@@ -96,11 +104,21 @@ public class SEPAPaymentExport implements PaymentExport {
 			return -1;
 		}
 		
-		int noLines = 0;
+		int noLines = checks.length;
 		try {
 			ZipOutputStream out = new ZipOutputStream(new FileOutputStream(file));
 			if (isDirectDebit()) {
-				addToZipFile(generateDirectDebitFile(checks, err), out);
+				setDifferentPaymentTypes(checks);
+				
+				if (!b2bFirstPayments.isEmpty())
+					addToZipFile(generateDirectDebitFile(b2bFirstPayments.toArray(new MPaySelectionCheck[b2bFirstPayments.size()]), true, true, err), out);
+				if (!b2bRcurPayments.isEmpty())
+					addToZipFile(generateDirectDebitFile(b2bRcurPayments.toArray(new MPaySelectionCheck[b2bRcurPayments.size()]), true, false, err), out);
+				if (!cor1FirstPayments.isEmpty())
+					addToZipFile(generateDirectDebitFile(cor1FirstPayments.toArray(new MPaySelectionCheck[cor1FirstPayments.size()]), false, true, err), out);
+				if (!cor1RcurPayments.isEmpty())
+					addToZipFile(generateDirectDebitFile(cor1RcurPayments.toArray(new MPaySelectionCheck[cor1FirstPayments.size()]), false, false, err), out);
+				
 			} else {
 				addToZipFile(generateCreditTransferFile(checks, err), out);
 			}
@@ -115,6 +133,40 @@ public class SEPAPaymentExport implements PaymentExport {
 		return noLines;
 	} // exportToFile
 	
+	private void setDifferentPaymentTypes(MPaySelectionCheck[] checks) {
+		boolean isFirstTransfer = false;
+		b2bFirstPayments = new ArrayList<>();
+		cor1FirstPayments = new ArrayList<>();
+		b2bRcurPayments = new ArrayList<>();
+		cor1RcurPayments = new ArrayList<>();
+		for (MPaySelectionCheck check : checks) {
+			MBPartner bPartner = MBPartner.get(Env.getCtx(), check.getC_BPartner_ID());
+			MBPBankAccount bpBankAccount = getBPartnerAccount(bPartner);
+			String lsString = bpBankAccount.get_ValueAsString(MBPBankAccountHelper.COLUMNNAME_SEPASDDSCHEME);
+			if (lsString == "")
+				throw new AdempiereException("Bank Account without a SEPA Mandate Type set: "+ bpBankAccount.getA_Name());
+			isFirstTransfer = !bpBankAccount.get_ValueAsBoolean(MBPBankAccountHelper.COLUMNNAME_ISTRANSFERRED);
+			
+			if (lsString.equals("B2B")) {
+				if (isFirstTransfer) {
+					b2bFirstPayments.add(check);
+					bpBankAccount.set_ValueNoCheck(MBPBankAccountHelper.COLUMNNAME_ISTRANSFERRED, Boolean.TRUE);
+					bpBankAccount.saveEx();
+				}
+				else 
+					b2bRcurPayments.add(check);
+			} else if (lsString.equals("COR1")) {
+				if (isFirstTransfer) {
+					cor1FirstPayments.add(check);
+					bpBankAccount.set_ValueNoCheck(MBPBankAccountHelper.COLUMNNAME_ISTRANSFERRED, Boolean.TRUE);
+					bpBankAccount.saveEx();
+				}
+				else 
+					cor1RcurPayments.add(check);
+			}
+		}
+	}
+
 	private File generateCreditTransferFile(MPaySelectionCheck[] checks, StringBuffer err) throws Exception {
 		
 		String creationFileDate = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss").format(System.currentTimeMillis()) ;
@@ -157,7 +209,7 @@ public class SEPAPaymentExport implements PaymentExport {
 		root.setAttribute("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance");
 		root.setAttribute("xmlns:xsd", "http://www.w3.org/2001/XMLSchema");
 		root.setAttribute("xmlns", "urn:iso:std:iso:20022:tech:xsd:" + documentType);
-
+		root.setAttribute("xsi:schemaLocation", "urn:iso:std:iso:20022:tech:xsd:" + documentType + " " + documentType + ".xsd");
 
 		//begin of second level node
 		Element secondNodeInitnElement = document.createElement(SECOND_SCT_ELEMENT);
@@ -215,11 +267,11 @@ public class SEPAPaymentExport implements PaymentExport {
 		paymentInfoElement.appendChild(document.createElement("ChrgBr")).setTextContent("SLEV");
 		
 		
-		for (int i = 0; i < checks.length; i++) {
-			if (checks[i] == null)
+		for (MPaySelectionCheck check : checks) {
+			if (check == null)
 				continue;
 			
-			paymentInfoElement.appendChild(getCreditTransferTrxInfo(checks[i], document, err));
+			paymentInfoElement.appendChild(getCreditTransferTrxInfo(check, document, err));
 		}
 		
 		secondNodeInitnElement.appendChild(paymentInfoElement);
@@ -231,10 +283,13 @@ public class SEPAPaymentExport implements PaymentExport {
 		return xmlFile;
 	}
 	
-	private File generateDirectDebitFile(MPaySelectionCheck[] checks, StringBuffer err) throws Exception {
+	private File generateDirectDebitFile(MPaySelectionCheck[] checks, boolean isB2B, boolean isFirstTransfer, StringBuffer err) throws Exception {
 		
-		String creationFileDate = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(System.currentTimeMillis());
-		File xmlFile = File.createTempFile("SEPA-Direct-Debit-" + creationFileDate, ".xml"); //Unique name per file
+		StringBuilder fileName = new StringBuilder("SEPA-Direct-Debit-");
+		fileName.append(new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(System.currentTimeMillis()));
+		fileName.append(isB2B ? "B2B" : "COR1");
+		fileName.append(isFirstTransfer ? "FRST" : "RCUR");
+		File xmlFile = File.createTempFile(fileName.toString(), ".xml");
 		
 		DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
 		DocumentBuilder builder = dbf.newDocumentBuilder();
@@ -273,7 +328,7 @@ public class SEPAPaymentExport implements PaymentExport {
 		root.setAttribute("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance");
 		root.setAttribute("xmlns:xsd", "http://www.w3.org/2001/XMLSchema");
 		root.setAttribute("xmlns", "urn:iso:std:iso:20022:tech:xsd:" + documentType);
-
+		root.setAttribute("xsi:schemaLocation", "urn:iso:std:iso:20022:tech:xsd:" + documentType + " " + documentType + ".xsd");
 
 		//begin of second level node
 		Element secondNodeInitnElement = document.createElement(SECOND_SDD_ELEMENT);
@@ -318,16 +373,9 @@ public class SEPAPaymentExport implements PaymentExport {
 			throw new Exception();
 		}
 		
-		//TODO: Elements in Debt
-		/*String lsString = bpAccount.get_ValueAsString(MBPBankAccountHelper.COLUMNNAME_SEPASDDSCHEME);
-		if (lsString == "")
-			throw new AdempiereException("Bank Account without a SEPA Mandate Type set: "+bpAccount.getA_Name());
-		lsArt = SepaSddScheme.valueOf(lsString);*/
-		
 		PmtTpInfElement.appendChild(document.createElement("LclInstrm"))
-					.appendChild(document.createElement("Cd")).setTextContent(""); ///??
-		PmtTpInfElement.appendChild(document.createElement("SeqTp")).setTextContent(""); ///??
-
+					.appendChild(document.createElement("Cd")).setTextContent(isB2B ? "B2B" : "COR1");
+		PmtTpInfElement.appendChild(document.createElement("SeqTp")).setTextContent(isFirstTransfer ? "FRST" : "RCUR");
 		paymentInfoElement.appendChild(PmtTpInfElement);
 
 		paymentInfoElement.appendChild(document.createElement("ReqdColltnDt")).setTextContent(iSEPA_ConvertSign(executionDate));
@@ -340,11 +388,11 @@ public class SEPAPaymentExport implements PaymentExport {
 						.setTextContent(iSEPA_ConvertSign(dbtrAcct_BIC));
 		paymentInfoElement.appendChild(document.createElement("ChrgBr")).setTextContent("SLEV");
 		
-		for (int i = 0; i < checks.length; i++) {
-			if (checks[i] == null)
+		for (MPaySelectionCheck check : checks) {
+			if (check == null)
 				continue;
 			
-			paymentInfoElement.appendChild(getDirectDebitTrxInfo(checks[i], document, err));
+			paymentInfoElement.appendChild(getDirectDebitTrxInfo(check, document, err));
 		}
 		
 		secondNodeInitnElement.appendChild(paymentInfoElement);
@@ -371,7 +419,7 @@ public class SEPAPaymentExport implements PaymentExport {
 			payAmt=payAmt.negate();
 		}
 
-		MBPartner bPartner = new MBPartner(Env.getCtx(), paySelectionCheck.getC_BPartner_ID(), null);
+		MBPartner bPartner = MBPartner.get(Env.getCtx(), paySelectionCheck.getC_BPartner_ID());
 		creditorName = bPartner.getName();
 
 		MBPBankAccount bpBankAccount = getBPartnerAccount(bPartner);
@@ -428,7 +476,7 @@ public class SEPAPaymentExport implements PaymentExport {
 			payAmt=payAmt.negate();
 		}
 
-		MBPartner bPartner = new MBPartner(Env.getCtx(), paySelectionCheck.getC_BPartner_ID(), null);
+		MBPartner bPartner = MBPartner.get(Env.getCtx(), paySelectionCheck.getC_BPartner_ID());
 		debitorName = bPartner.getName();
 
 		MBPBankAccount bpBankAccount = getBPartnerAccount(bPartner);
