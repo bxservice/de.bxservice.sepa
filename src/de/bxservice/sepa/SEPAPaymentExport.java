@@ -17,9 +17,15 @@
 package de.bxservice.sepa;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
 import java.util.logging.Level;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -37,6 +43,7 @@ import org.compiere.model.MBPartner;
 import org.compiere.model.MClient;
 import org.compiere.model.MCurrency;
 import org.compiere.model.MOrg;
+import org.compiere.model.MOrgInfo;
 import org.compiere.model.MPaySelectionCheck;
 import org.compiere.model.MPaySelectionLine;
 import org.compiere.util.CLogger;
@@ -57,10 +64,18 @@ import org.w3c.dom.Element;
 public class SEPAPaymentExport implements PaymentExport {
 	/** Logger */
 	static private CLogger s_log = CLogger.getCLogger(SEPAPaymentExport.class);
+
+	//Main xml elements
+	private static final String PAYMENT_INFO_ELEMENT = "PmtInf"; 
+	private static final String SECOND_SCT_ELEMENT   = "CstmrCdtTrfInitn"; 
+	private static final String SECOND_SDD_ELEMENT   = "CstmrDrctDbtInitn"; 
+	private static final String ROOT_ELEMENT         = "Document";
 	
-	private final String SEPA_CREDIT_TRANSFER = "pain.001.002.03"; //Use for payments
-	private final String SEPA_DIRECT_DEBIT    = "pain.008.003.02"; //Use for collection
-	private boolean isDirectDebit = false;
+	//SEPA file type
+	private static final String SEPA_CREDIT_TRANSFER = "pain.001.003.03"; //Use for payments
+	private static final String SEPA_DIRECT_DEBIT    = "pain.008.003.02"; //Use for collection
+
+	private boolean directDebit = false;
 	private String documentType;
 
 	/**************************************************************************
@@ -74,192 +89,440 @@ public class SEPAPaymentExport implements PaymentExport {
 	 */
 	@Override
 	public int exportToFile(MPaySelectionCheck[] checks, boolean collectiveBooking, String paymentRule, File file, StringBuffer err) {
-		
-		SetDocumentType(paymentRule);
+
+		setDocumentType(paymentRule);
 		if (documentType == null) {
 			s_log.log(Level.SEVERE, "Payment Rule not supported");
 			return -1;
 		}
-
+		
 		int noLines = 0;
 		try {
-			DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-			DocumentBuilder builder = dbf.newDocumentBuilder();
-			Document document = builder.newDocument();
-
-			MClient client = MClient.get(Env.getCtx());
-
-			String msgId;
-			String creationDate;
-			int numberOfTransactions = 0;
-			String initiatorName;
-			BigDecimal ctrlSum;
-			String executionDate;
-			String dbtrAcct_IBAN;
-			String dbtrAcct_BIC;
-
-			ctrlSum = BigDecimal.ZERO;
-
-			for (int i = 0; i < checks.length; i++) {
-				MPaySelectionCheck mpp = checks[i];
-				ctrlSum = ctrlSum.add(mpp.getPayAmt());
-				numberOfTransactions++;
+			ZipOutputStream out = new ZipOutputStream(new FileOutputStream(file));
+			if (isDirectDebit()) {
+				addToZipFile(generateDirectDebitFile(checks, err), out);
+			} else {
+				addToZipFile(generateCreditTransferFile(checks, err), out);
 			}
-
-			MPaySelectionCheck firstPaySelectionCheck = checks[0];
-			I_C_PaySelection firstPaySelection = firstPaySelectionCheck.getC_PaySelection();
-			
-			if (firstPaySelection.getAD_Org_ID() != 0)
-				initiatorName = MOrg.get(Env.getCtx(), firstPaySelection.getAD_Org_ID()).getName();
-			else
-				initiatorName = client.getName();
-			String dbtr_Name = initiatorName; //TODO: WHEN COLLECTION?
-
-			msgId = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(firstPaySelection.getCreated());
-			String paymentInfoId = msgId;
-
-			executionDate = new SimpleDateFormat("yyyy-MM-dd").format(firstPaySelection.getPayDate());
-			creationDate = new SimpleDateFormat("yyyy-MM-dd").format(System.currentTimeMillis()) + "T"
-					+ new SimpleDateFormat("HH:mm:ss").format(System.currentTimeMillis()) + ".000Z";
-
-			I_C_BankAccount bankAccount = firstPaySelection.getC_BankAccount();
-			dbtrAcct_IBAN = IBAN.normalizeIBAN(bankAccount.getIBAN());
-			dbtrAcct_BIC = bankAccount.getC_Bank().getSwiftCode();
-
-			if (!IBAN.isValid(dbtrAcct_IBAN)) {
-				err.append("IBAN " + dbtrAcct_IBAN + " is not valid.");
-				return -1;
-			}
-
-			if (!Util.isEmpty(dbtrAcct_BIC) && dbtrAcct_BIC.length() > 11) {
-				err.append("BIC/SWIFTCode " + dbtrAcct_BIC + " is not valid.");
-				return -1;
-			}
-
-			Element root = document.createElement("Document");
-			root.setAttribute("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance");
-			root.setAttribute("xmlns:xsd", "http://www.w3.org/2001/XMLSchema");
-			root.setAttribute("xmlns", "urn:iso:std:iso:20022:tech:xsd:" + documentType);
-			
-			
-			//begin of CstmrCdtTrfInitnElement
-			Element CstmrCdtTrfInitnElement = document.createElement("CstmrCdtTrfInitn");
-			
-			Element GrpHdrElement = document.createElement("GrpHdr");
-			GrpHdrElement.appendChild(document.createElement("MsgId")).setTextContent(iSEPA_ConvertSign(msgId, 35));
-			GrpHdrElement.appendChild(document.createElement("CreDtTm")).setTextContent(iSEPA_ConvertSign(creationDate));
-			GrpHdrElement.appendChild(document.createElement("NbOfTxs")).setTextContent(String.valueOf(numberOfTransactions));
-			GrpHdrElement.appendChild(document.createElement("InitgPty")).appendChild(document.createElement("Nm")).setTextContent(iSEPA_ConvertSign(initiatorName, 70));
-			CstmrCdtTrfInitnElement.appendChild(GrpHdrElement);
-
-			//Begin of PmtInf
-			Element PmtInfElement = document.createElement("PmtInf");
-
-			PmtInfElement.appendChild(document.createElement("PmtInfId"))
-					.setTextContent(iSEPA_ConvertSign(paymentInfoId, 35));
-			PmtInfElement.appendChild(document.createElement("PmtMtd")).setTextContent("TRF");
-			PmtInfElement.appendChild(document.createElement("BtchBookg")).setTextContent("true");
-			PmtInfElement.appendChild(document.createElement("NbOfTxs"))
-					.setTextContent(String.valueOf(numberOfTransactions));
-			PmtInfElement.appendChild(document.createElement("CtrlSum")).setTextContent(String.valueOf(ctrlSum));
-			PmtInfElement.appendChild(document.createElement("PmtTpInf")).appendChild(document.createElement("SvcLvl"))
-					.appendChild(document.createElement("Cd")).setTextContent("SEPA");
-			PmtInfElement.appendChild(document.createElement("ReqdExctnDt"))
-					.setTextContent(iSEPA_ConvertSign(executionDate));
-			PmtInfElement.appendChild(document.createElement("Dbtr")).appendChild(document.createElement("Nm"))
-					.setTextContent(iSEPA_ConvertSign(dbtr_Name, 70));
-			PmtInfElement.appendChild(document.createElement("DbtrAcct")).appendChild(document.createElement("Id"))
-					.appendChild(document.createElement("IBAN")).setTextContent(dbtrAcct_IBAN);
-			PmtInfElement.appendChild(document.createElement("DbtrAgt"))
-					.appendChild(document.createElement("FinInstnId")).appendChild(document.createElement("BIC"))
-					.setTextContent(iSEPA_ConvertSign(dbtrAcct_BIC));
-			PmtInfElement.appendChild(document.createElement("ChrgBr")).setTextContent("SLEV");
-
-			//Begin of CdtTrfTxInf
-			for (int i = 0; i < checks.length; i++) {
-				MPaySelectionCheck paySelectionCheck = checks[i];
-
-				if (paySelectionCheck == null)
-					continue;
-				
-				String pmtId = getEndToEndId(paySelectionCheck);
-				String creditorName;
-				String CdtrAcct_BIC;
-				String CdtrAcct_IBAN;
-				String unverifiedReferenceLine;
-
-				unverifiedReferenceLine = getUnverifiedReferenceLine(paySelectionCheck);
-				
-				BigDecimal payAmt = paySelectionCheck.getPayAmt();
-				if (payAmt.compareTo(BigDecimal.ZERO) <= 0) {
-						payAmt=payAmt.negate();
-				}
-
-				MBPartner bPartner = new MBPartner(Env.getCtx(), paySelectionCheck.getC_BPartner_ID(), null);
-				creditorName = bPartner.getName();
-
-				MBPBankAccount bpBankAccount = getBPartnerAccount(bPartner);
-				if (bpBankAccount == null) {
-					err.append("BPARTNER " + bPartner.getName() + " does not have a valid bank account");
-					return -1;
-				}
-				CdtrAcct_IBAN = IBAN.normalizeIBAN(bpBankAccount.getIBAN());
-				CdtrAcct_BIC = bpBankAccount.getSwiftCode();
-
-				if (!IBAN.isValid(CdtrAcct_IBAN)) {
-					err.append("IBAN " + CdtrAcct_IBAN + " is not valid. Creditor: " + creditorName);
-					return -1;
-				}
-
-				Element CdtTrfTxInfElement = document.createElement("CdtTrfTxInf");
-
-				CdtTrfTxInfElement.appendChild(document.createElement("PmtId"))
-						.appendChild(document.createElement("EndToEndId")).setTextContent(iSEPA_ConvertSign(pmtId, 35));
-
-				Element InstdAmtElement = document.createElement("InstdAmt");
-				InstdAmtElement.setAttribute("Ccy",
-						MCurrency.getISO_Code(Env.getCtx(), paySelectionCheck.getParent().getC_Currency_ID()));
-				InstdAmtElement.setTextContent(String.valueOf(payAmt));
-				
-				CdtTrfTxInfElement.appendChild(document.createElement("Amt")).appendChild(InstdAmtElement);
-				CdtTrfTxInfElement.appendChild(document.createElement("CdtrAgt"))
-						.appendChild(document.createElement("FinInstnId")).appendChild(document.createElement("BIC"))
-						.setTextContent(iSEPA_ConvertSign(CdtrAcct_BIC));
-				CdtTrfTxInfElement.appendChild(document.createElement("Cdtr")).appendChild(document.createElement("Nm"))
-						.setTextContent(iSEPA_ConvertSign(creditorName, 70));
-				CdtTrfTxInfElement.appendChild(document.createElement("CdtrAcct"))
-						.appendChild(document.createElement("Id")).appendChild(document.createElement("IBAN"))
-						.setTextContent(CdtrAcct_IBAN);
-				CdtTrfTxInfElement.appendChild(document.createElement("RmtInf"))
-						.appendChild(document.createElement("Ustrd"))
-						.setTextContent(iSEPA_ConvertSign(unverifiedReferenceLine, 140));
-				PmtInfElement.appendChild(CdtTrfTxInfElement);
-
-			}
-
-			CstmrCdtTrfInitnElement.appendChild(PmtInfElement);
-			root.appendChild(CstmrCdtTrfInitnElement);
-			document.appendChild(root);
-
-			DOMSource domSource = new DOMSource(document);
-			StreamResult streamResult = new StreamResult(file);
-			TransformerFactory tf = TransformerFactory.newInstance();
-
-			Transformer serializer = tf.newTransformer();
-			serializer.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
-			serializer.setOutputProperty(OutputKeys.INDENT, "yes");
-			serializer.transform(domSource, streamResult);
-
-			noLines = numberOfTransactions;
+			out.close();
+			//noLines = numberOfTransactions;
 		} catch (Exception e) {
-			err.append(e.toString());
-			s_log.log(Level.SEVERE, "", e);
-			return -1;
+				err.append(e.toString());
+				s_log.log(Level.SEVERE, "", e);
+				return -1;
 		}
 
 		return noLines;
 	} // exportToFile
+	
+	private File generateCreditTransferFile(MPaySelectionCheck[] checks, StringBuffer err) throws Exception {
+		
+		String creationFileDate = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss").format(System.currentTimeMillis()) ;
+		File xmlFile = File.createTempFile("SEPA-Credit-Transfer-" + creationFileDate, ".xml");
+		
+		DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+		DocumentBuilder builder = dbf.newDocumentBuilder();
+		Document document = builder.newDocument();
 
+		MClient client = MClient.get(Env.getCtx());
+
+		String msgId;
+		String creationDate;
+		int numberOfTransactions = 0;
+		String initiatorName;
+		BigDecimal ctrlSum = BigDecimal.ZERO;
+
+		for (int i = 0; i < checks.length; i++) {
+			MPaySelectionCheck mpp = checks[i];
+			ctrlSum = ctrlSum.add(mpp.getPayAmt());
+			numberOfTransactions++;
+		}
+
+		MPaySelectionCheck firstPaySelectionCheck = checks[0];
+		I_C_PaySelection firstPaySelection = firstPaySelectionCheck.getC_PaySelection();
+
+		if (firstPaySelection.getAD_Org_ID() != 0)
+			initiatorName = MOrg.get(Env.getCtx(), firstPaySelection.getAD_Org_ID()).getName();
+		else
+			initiatorName = client.getName();
+
+		msgId = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(firstPaySelection.getCreated());
+		String paymentInfoId = msgId;
+
+		creationDate = new SimpleDateFormat("yyyy-MM-dd").format(System.currentTimeMillis()) + "T"
+				+ new SimpleDateFormat("HH:mm:ss").format(System.currentTimeMillis()) + ".000Z";
+
+		//Header
+		Element root = document.createElement(ROOT_ELEMENT);
+		root.setAttribute("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance");
+		root.setAttribute("xmlns:xsd", "http://www.w3.org/2001/XMLSchema");
+		root.setAttribute("xmlns", "urn:iso:std:iso:20022:tech:xsd:" + documentType);
+
+
+		//begin of second level node
+		Element secondNodeInitnElement = document.createElement(SECOND_SCT_ELEMENT);
+
+		//Group header element same for both cases
+		Element GrpHdrElement = document.createElement("GrpHdr");
+		GrpHdrElement.appendChild(document.createElement("MsgId")).setTextContent(iSEPA_ConvertSign(msgId, 35));
+		GrpHdrElement.appendChild(document.createElement("CreDtTm")).setTextContent(iSEPA_ConvertSign(creationDate));
+		GrpHdrElement.appendChild(document.createElement("NbOfTxs")).setTextContent(String.valueOf(numberOfTransactions));
+		GrpHdrElement.appendChild(document.createElement("InitgPty")).appendChild(document.createElement("Nm")).setTextContent(iSEPA_ConvertSign(initiatorName, 70));
+		secondNodeInitnElement.appendChild(GrpHdrElement);
+		
+		//Begin of PmtInf
+		Element paymentInfoElement = document.createElement(PAYMENT_INFO_ELEMENT);
+
+		paymentInfoElement.appendChild(document.createElement("PmtInfId"))
+		.setTextContent(iSEPA_ConvertSign(paymentInfoId, 35));
+		paymentInfoElement.appendChild(document.createElement("PmtMtd")).setTextContent("TRF");
+		paymentInfoElement.appendChild(document.createElement("BtchBookg")).setTextContent("true");
+		paymentInfoElement.appendChild(document.createElement("NbOfTxs"))
+		.setTextContent(String.valueOf(numberOfTransactions));
+		paymentInfoElement.appendChild(document.createElement("CtrlSum")).setTextContent(String.valueOf(ctrlSum));
+		
+		Element PmtTpInfElement = document.createElement("PmtTpInf");
+		PmtTpInfElement.appendChild(document.createElement("SvcLvl"))
+					.appendChild(document.createElement("Cd")).setTextContent("SEPA");
+		
+		I_C_BankAccount bankAccount = firstPaySelection.getC_BankAccount();
+		
+		String executionDate = new SimpleDateFormat("yyyy-MM-dd").format(firstPaySelection.getPayDate());
+		String dbtr_Name = MOrg.get(Env.getCtx(), firstPaySelection.getAD_Org_ID()).getName();
+		String dbtrAcct_IBAN = IBAN.normalizeIBAN(bankAccount.getIBAN());
+		String dbtrAcct_BIC = bankAccount.getC_Bank().getSwiftCode();
+
+		if (!IBAN.isValid(dbtrAcct_IBAN)) {
+			err.append("IBAN " + dbtrAcct_IBAN + " is not valid.");
+			throw new Exception();
+		}
+
+		if (!Util.isEmpty(dbtrAcct_BIC) && dbtrAcct_BIC.length() > 11) {
+			err.append("BIC/SWIFTCode " + dbtrAcct_BIC + " is not valid.");
+			throw new Exception();
+		}
+		
+		paymentInfoElement.appendChild(PmtTpInfElement);
+		paymentInfoElement.appendChild(document.createElement("ReqdExctnDt"))
+					.setTextContent(iSEPA_ConvertSign(executionDate));
+		paymentInfoElement.appendChild(document.createElement("Dbtr")).appendChild(document.createElement("Nm"))
+					.setTextContent(iSEPA_ConvertSign(dbtr_Name, 70));
+		paymentInfoElement.appendChild(document.createElement("DbtrAcct")).appendChild(document.createElement("Id"))
+					.appendChild(document.createElement("IBAN")).setTextContent(dbtrAcct_IBAN);
+		paymentInfoElement.appendChild(document.createElement("DbtrAgt"))
+					.appendChild(document.createElement("FinInstnId")).appendChild(document.createElement("BIC"))
+					.setTextContent(iSEPA_ConvertSign(dbtrAcct_BIC));
+		paymentInfoElement.appendChild(document.createElement("ChrgBr")).setTextContent("SLEV");
+		
+		
+		for (int i = 0; i < checks.length; i++) {
+			if (checks[i] == null)
+				continue;
+			
+			paymentInfoElement.appendChild(getCreditTransferTrxInfo(checks[i], document, err));
+		}
+		
+		secondNodeInitnElement.appendChild(paymentInfoElement);
+		root.appendChild(secondNodeInitnElement);
+		document.appendChild(root);
+		
+		convertToXMLFile(document, xmlFile);
+		
+		return xmlFile;
+	}
+	
+	private File generateDirectDebitFile(MPaySelectionCheck[] checks, StringBuffer err) throws Exception {
+		
+		String creationFileDate = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(System.currentTimeMillis());
+		File xmlFile = File.createTempFile("SEPA-Direct-Debit-" + creationFileDate, ".xml"); //Unique name per file
+		
+		DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+		DocumentBuilder builder = dbf.newDocumentBuilder();
+		Document document = builder.newDocument();
+
+		MClient client = MClient.get(Env.getCtx());
+
+		String msgId;
+		String creationDate;
+		int numberOfTransactions = 0;
+		String initiatorName;
+		BigDecimal ctrlSum = BigDecimal.ZERO;
+
+		for (int i = 0; i < checks.length; i++) {
+			MPaySelectionCheck mpp = checks[i];
+			ctrlSum = ctrlSum.add(mpp.getPayAmt());
+			numberOfTransactions++;
+		}
+
+		MPaySelectionCheck firstPaySelectionCheck = checks[0];
+		I_C_PaySelection firstPaySelection = firstPaySelectionCheck.getC_PaySelection();
+
+		if (firstPaySelection.getAD_Org_ID() != 0)
+			initiatorName = MOrg.get(Env.getCtx(), firstPaySelection.getAD_Org_ID()).getName();
+		else
+			initiatorName = client.getName();
+
+		msgId = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(firstPaySelection.getCreated());
+		String paymentInfoId = msgId;
+
+		creationDate = new SimpleDateFormat("yyyy-MM-dd").format(System.currentTimeMillis()) + "T"
+				+ new SimpleDateFormat("HH:mm:ss").format(System.currentTimeMillis()) + ".000Z";
+
+		//Header
+		Element root = document.createElement(ROOT_ELEMENT);
+		root.setAttribute("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance");
+		root.setAttribute("xmlns:xsd", "http://www.w3.org/2001/XMLSchema");
+		root.setAttribute("xmlns", "urn:iso:std:iso:20022:tech:xsd:" + documentType);
+
+
+		//begin of second level node
+		Element secondNodeInitnElement = document.createElement(SECOND_SDD_ELEMENT);
+
+		//Group header element same for both cases
+		Element GrpHdrElement = document.createElement("GrpHdr");
+		GrpHdrElement.appendChild(document.createElement("MsgId")).setTextContent(iSEPA_ConvertSign(msgId, 35));
+		GrpHdrElement.appendChild(document.createElement("CreDtTm")).setTextContent(iSEPA_ConvertSign(creationDate));
+		GrpHdrElement.appendChild(document.createElement("NbOfTxs")).setTextContent(String.valueOf(numberOfTransactions));
+		GrpHdrElement.appendChild(document.createElement("InitgPty")).appendChild(document.createElement("Nm")).setTextContent(iSEPA_ConvertSign(initiatorName, 70));
+		secondNodeInitnElement.appendChild(GrpHdrElement);
+		
+		//Begin of PmtInf
+		Element paymentInfoElement = document.createElement(PAYMENT_INFO_ELEMENT);
+
+		paymentInfoElement.appendChild(document.createElement("PmtInfId"))
+				.setTextContent(iSEPA_ConvertSign(paymentInfoId, 35));
+		paymentInfoElement.appendChild(document.createElement("PmtMtd")).setTextContent("TRF");
+		paymentInfoElement.appendChild(document.createElement("BtchBookg")).setTextContent("true");
+		paymentInfoElement.appendChild(document.createElement("NbOfTxs"))
+		.setTextContent(String.valueOf(numberOfTransactions));
+		paymentInfoElement.appendChild(document.createElement("CtrlSum")).setTextContent(String.valueOf(ctrlSum));
+		
+		Element PmtTpInfElement = document.createElement("PmtTpInf");
+		PmtTpInfElement.appendChild(document.createElement("SvcLvl"))
+					.appendChild(document.createElement("Cd")).setTextContent("SEPA");
+		
+		I_C_BankAccount bankAccount = firstPaySelection.getC_BankAccount();
+		
+		String executionDate = new SimpleDateFormat("yyyy-MM-dd").format(firstPaySelection.getPayDate());
+		String dbtr_Name = MOrg.get(Env.getCtx(), firstPaySelection.getAD_Org_ID()).getName();
+		String dbtrAcct_IBAN = IBAN.normalizeIBAN(bankAccount.getIBAN());
+		String dbtrAcct_BIC = bankAccount.getC_Bank().getSwiftCode();
+
+		if (!IBAN.isValid(dbtrAcct_IBAN)) {
+			err.append("IBAN " + dbtrAcct_IBAN + " is not valid.");
+			throw new Exception();
+		}
+
+		if (!Util.isEmpty(dbtrAcct_BIC) && dbtrAcct_BIC.length() > 11) {
+			err.append("BIC/SWIFTCode " + dbtrAcct_BIC + " is not valid.");
+			throw new Exception();
+		}
+		
+		//TODO: Elements in Debt
+		/*String lsString = bpAccount.get_ValueAsString(MBPBankAccountHelper.COLUMNNAME_SEPASDDSCHEME);
+		if (lsString == "")
+			throw new AdempiereException("Bank Account without a SEPA Mandate Type set: "+bpAccount.getA_Name());
+		lsArt = SepaSddScheme.valueOf(lsString);*/
+		
+		PmtTpInfElement.appendChild(document.createElement("LclInstrm"))
+					.appendChild(document.createElement("Cd")).setTextContent(""); ///??
+		PmtTpInfElement.appendChild(document.createElement("SeqTp")).setTextContent(""); ///??
+
+		paymentInfoElement.appendChild(PmtTpInfElement);
+
+		paymentInfoElement.appendChild(document.createElement("ReqdColltnDt")).setTextContent(iSEPA_ConvertSign(executionDate));
+		paymentInfoElement.appendChild(document.createElement("Cdtr")).appendChild(document.createElement("Nm"))
+						.setTextContent(iSEPA_ConvertSign(dbtr_Name, 70));
+		paymentInfoElement.appendChild(document.createElement("CdtrAcct")).appendChild(document.createElement("Id"))
+						.appendChild(document.createElement("IBAN")).setTextContent(dbtrAcct_IBAN);
+		paymentInfoElement.appendChild(document.createElement("CdtrAgt"))
+						.appendChild(document.createElement("FinInstnId")).appendChild(document.createElement("BIC"))
+						.setTextContent(iSEPA_ConvertSign(dbtrAcct_BIC));
+		paymentInfoElement.appendChild(document.createElement("ChrgBr")).setTextContent("SLEV");
+		
+		for (int i = 0; i < checks.length; i++) {
+			if (checks[i] == null)
+				continue;
+			
+			paymentInfoElement.appendChild(getDirectDebitTrxInfo(checks[i], document, err));
+		}
+		
+		secondNodeInitnElement.appendChild(paymentInfoElement);
+		root.appendChild(secondNodeInitnElement);
+		document.appendChild(root);
+		
+		convertToXMLFile(document, xmlFile);
+		
+		return xmlFile;
+	}
+	
+	private Element getCreditTransferTrxInfo(MPaySelectionCheck paySelectionCheck, Document document, StringBuffer err) throws Exception {
+
+		String pmtId = getEndToEndId(paySelectionCheck);
+		String creditorName;
+		String CdtrAcct_BIC;
+		String CdtrAcct_IBAN;
+		String unverifiedReferenceLine;
+
+		unverifiedReferenceLine = getUnverifiedReferenceLine(paySelectionCheck);
+
+		BigDecimal payAmt = paySelectionCheck.getPayAmt();
+		if (payAmt.compareTo(BigDecimal.ZERO) <= 0) {
+			payAmt=payAmt.negate();
+		}
+
+		MBPartner bPartner = new MBPartner(Env.getCtx(), paySelectionCheck.getC_BPartner_ID(), null);
+		creditorName = bPartner.getName();
+
+		MBPBankAccount bpBankAccount = getBPartnerAccount(bPartner);
+		if (bpBankAccount == null) {
+			err.append("BPARTNER " + bPartner.getName() + " does not have a valid bank account");
+			throw new Exception();
+		}
+		CdtrAcct_IBAN = IBAN.normalizeIBAN(bpBankAccount.getIBAN());
+		CdtrAcct_BIC = bpBankAccount.getSwiftCode();
+
+		if (!IBAN.isValid(CdtrAcct_IBAN)) {
+			err.append("IBAN " + CdtrAcct_IBAN + " is not valid. Creditor: " + creditorName);
+			throw new Exception();
+		}
+
+		Element CdtTrfTxInfElement = document.createElement("CdtTrfTxInf");
+
+		CdtTrfTxInfElement.appendChild(document.createElement("PmtId"))
+				.appendChild(document.createElement("EndToEndId")).setTextContent(iSEPA_ConvertSign(pmtId, 35));
+
+		Element InstdAmtElement = document.createElement("InstdAmt");
+		InstdAmtElement.setAttribute("Ccy",
+				MCurrency.getISO_Code(Env.getCtx(), paySelectionCheck.getParent().getC_Currency_ID()));
+		InstdAmtElement.setTextContent(String.valueOf(payAmt));
+
+		CdtTrfTxInfElement.appendChild(document.createElement("Amt")).appendChild(InstdAmtElement);
+		CdtTrfTxInfElement.appendChild(document.createElement("CdtrAgt"))
+					.appendChild(document.createElement("FinInstnId")).appendChild(document.createElement("BIC"))
+					.setTextContent(iSEPA_ConvertSign(CdtrAcct_BIC));
+		CdtTrfTxInfElement.appendChild(document.createElement("Cdtr")).appendChild(document.createElement("Nm"))
+					.setTextContent(iSEPA_ConvertSign(creditorName, 70));
+		CdtTrfTxInfElement.appendChild(document.createElement("CdtrAcct"))
+					.appendChild(document.createElement("Id")).appendChild(document.createElement("IBAN"))
+					.setTextContent(CdtrAcct_IBAN);
+		CdtTrfTxInfElement.appendChild(document.createElement("RmtInf"))
+					.appendChild(document.createElement("Ustrd"))
+					.setTextContent(iSEPA_ConvertSign(unverifiedReferenceLine, 140));
+		
+		return CdtTrfTxInfElement;
+	}
+	
+	private Element getDirectDebitTrxInfo(MPaySelectionCheck paySelectionCheck, Document document, StringBuffer err) throws Exception {
+
+		String pmtId = getEndToEndId(paySelectionCheck);
+		String debitorName;
+		String dbtrAcct_BIC;
+		String dbtrAcct_IBAN;
+		String unverifiedReferenceLine;
+
+		unverifiedReferenceLine = getUnverifiedReferenceLine(paySelectionCheck);
+
+		BigDecimal payAmt = paySelectionCheck.getPayAmt();
+		if (payAmt.compareTo(BigDecimal.ZERO) <= 0) {
+			payAmt=payAmt.negate();
+		}
+
+		MBPartner bPartner = new MBPartner(Env.getCtx(), paySelectionCheck.getC_BPartner_ID(), null);
+		debitorName = bPartner.getName();
+
+		MBPBankAccount bpBankAccount = getBPartnerAccount(bPartner);
+		if (bpBankAccount == null) {
+			err.append("BPARTNER " + bPartner.getName() + " does not have a valid bank account");
+			throw new Exception();
+		}
+		dbtrAcct_IBAN = IBAN.normalizeIBAN(bpBankAccount.getIBAN());
+		dbtrAcct_BIC = bpBankAccount.getSwiftCode();
+
+		if (!IBAN.isValid(dbtrAcct_IBAN)) {
+			err.append("IBAN " + dbtrAcct_IBAN + " is not valid. Creditor: " + debitorName);
+			throw new Exception();
+		}
+
+		Element drctDbtTxInfElement = document.createElement("DrctDbtTxInf");
+
+		drctDbtTxInfElement.appendChild(document.createElement("PmtId"))
+							.appendChild(document.createElement("EndToEndId")).setTextContent(iSEPA_ConvertSign(pmtId, 35));
+
+		Element InstdAmtElement = document.createElement("InstdAmt");
+		InstdAmtElement.setAttribute("Ccy",
+				MCurrency.getISO_Code(Env.getCtx(), paySelectionCheck.getParent().getC_Currency_ID()));
+		InstdAmtElement.setTextContent(String.valueOf(payAmt));
+		drctDbtTxInfElement.appendChild(InstdAmtElement);
+		
+		String signatureDate = new SimpleDateFormat("yyyy-MM-dd").format(bpBankAccount.get_Value(MBPBankAccountHelper.COLUMNNAME_DATEDOC));
+
+		Element drctDbtTxElement = document.createElement("DrctDbtTx");
+		Element mndtRltdInfElement = document.createElement("MndtRltdInf");
+		mndtRltdInfElement.appendChild(document.createElement("MndtId")).setTextContent(bpBankAccount.get_ValueAsString(MBPBankAccountHelper.COLUMNNAME_MNDTID));
+		mndtRltdInfElement.appendChild(document.createElement("DtOfSgntr")).setTextContent(signatureDate);
+		mndtRltdInfElement.appendChild(document.createElement("AmdmntInd")).setTextContent("false");
+		drctDbtTxElement.appendChild(mndtRltdInfElement);
+		
+		Element cdtrSchmeIdElement = document.createElement("CdtrSchmeId");
+		Element cdtrIdElement = document.createElement("Id");
+		Element prvtIdElement = document.createElement("PrvtId");
+		Element othrElement = document.createElement("Othr");
+		Element othrIDElement = document.createElement("Id");
+		String creditorIdentifier =  MOrgInfo.get(Env.getCtx(), paySelectionCheck.getAD_Org_ID(), null).get_ValueAsString(MOrgHelper.COLUMNNAME_AD_ORG_CREDITORIDENTIFIER);
+		othrIDElement.setTextContent(creditorIdentifier);
+		othrElement.appendChild(othrIDElement);
+		othrElement.appendChild(document.createElement("SchmeNm"))
+					.appendChild(document.createElement("Prtry")).setTextContent("SEPA");
+		prvtIdElement.appendChild(othrElement);
+		cdtrIdElement.appendChild(prvtIdElement);
+		cdtrSchmeIdElement.appendChild(cdtrIdElement);
+		drctDbtTxElement.appendChild(cdtrSchmeIdElement);
+		drctDbtTxInfElement.appendChild(drctDbtTxElement);
+		
+		drctDbtTxInfElement.appendChild(document.createElement("DbtrAgt"))
+							.appendChild(document.createElement("FinInstnId")).appendChild(document.createElement("BIC"))
+							.setTextContent(iSEPA_ConvertSign(dbtrAcct_BIC));
+
+		drctDbtTxInfElement.appendChild(document.createElement("Dbtr")).appendChild(document.createElement("Nm"))
+							.setTextContent(iSEPA_ConvertSign(debitorName, 70));
+		drctDbtTxInfElement.appendChild(document.createElement("DbtrAcct"))
+							.appendChild(document.createElement("Id")).appendChild(document.createElement("IBAN"))
+							.setTextContent(dbtrAcct_IBAN);
+		
+		drctDbtTxInfElement.appendChild(document.createElement("RmtInf"))
+		.appendChild(document.createElement("Ustrd"))
+		.setTextContent(iSEPA_ConvertSign(unverifiedReferenceLine, 140));
+		
+		return drctDbtTxInfElement;
+	}
+	
+	private void convertToXMLFile(Document document, File xmlFile) throws Exception {
+		DOMSource domSource = new DOMSource(document);
+		StreamResult streamResult = new StreamResult(xmlFile);
+		TransformerFactory tf = TransformerFactory.newInstance();
+
+		Transformer serializer = tf.newTransformer();
+		serializer.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
+		serializer.setOutputProperty(OutputKeys.INDENT, "yes");
+		serializer.transform(domSource, streamResult);
+	}
+
+	private void addToZipFile(File file, ZipOutputStream zos) throws FileNotFoundException, IOException {
+		FileInputStream fis = new FileInputStream(file);
+		ZipEntry zipEntry = new ZipEntry(file.getName());
+		zos.putNextEntry(zipEntry);
+
+		byte[] bytes = new byte[1024];
+		int length;
+		while ((length = fis.read(bytes)) >= 0) {
+			zos.write(bytes, 0, length);
+		}
+
+		zos.closeEntry();
+		fis.close();
+	}
+	
 	/**
 	 * 
 	 * Generate unstructured reference line
@@ -300,9 +563,9 @@ public class SEPAPaymentExport implements PaymentExport {
 
 		return remittanceInformationSB.toString();
 	} // getUnverifiedReferenceLine
-	
+
 	private String getEndToEndId(MPaySelectionCheck mpp) {
-		
+
 		StringBuilder endToEndID = new StringBuilder();
 		MPaySelectionLine[] mPaySelectionLines = mpp.getPaySelectionLines(true);
 
@@ -340,7 +603,7 @@ public class SEPAPaymentExport implements PaymentExport {
 					bpBankAccount = bpBankAccountTemp;
 				else if (!isDirectDebit() && bpBankAccountTemp.isDirectDeposit())
 					bpBankAccount = bpBankAccountTemp;
-				
+
 				if (bpBankAccount != null)
 					break;
 			}
@@ -376,31 +639,31 @@ public class SEPAPaymentExport implements PaymentExport {
 		}
 	}
 
-	public void SetDocumentType(String paymentRule) {
+	public void setDocumentType(String paymentRule) {
 		if (MPaySelectionCheck.PAYMENTRULE_DirectDebit.equals(paymentRule)) {
 			documentType = SEPA_DIRECT_DEBIT;
-			isDirectDebit = true;
+			directDebit = true;
 		}
 		else if (MPaySelectionCheck.PAYMENTRULE_DirectDeposit.equals(paymentRule)) {
 			documentType = SEPA_CREDIT_TRANSFER;
-			isDirectDebit = false;
+			directDebit = false;
 		}
 	}
 
 	@Override
 	public String getFilenamePrefix() {
 		String creationDate = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss").format(System.currentTimeMillis()) ;
-		return "SEPA-Credit-Transfer-" + creationDate ;
+		return "SEPA-" + creationDate ;
 	}
 
 	@Override
 	public String getFilenameSuffix() {
-		return ".xml";
+		return ".zip";
 	}
 
 	@Override
 	public String getContentType() {
-		return "text/xml";
+		return "application/zip";
 	}
 
 	public boolean supportsDepositBatch() {
@@ -414,13 +677,13 @@ public class SEPAPaymentExport implements PaymentExport {
 	public boolean getDefaultDepositBatch() {
 		return false;
 	}
-	
+
 	public boolean isDirectDebit() {
-		return isDirectDebit;
+		return directDebit;
 	}
 
 	public void setDirectDebit(boolean isDirectDebit) {
-		this.isDirectDebit = isDirectDebit;
+		this.directDebit = isDirectDebit;
 	}
 
 } // PaymentExport
