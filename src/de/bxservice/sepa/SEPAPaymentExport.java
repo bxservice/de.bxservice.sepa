@@ -22,6 +22,7 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.text.NumberFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Locale;
@@ -618,8 +619,12 @@ public class SEPAPaymentExport implements PaymentExport {
 						remittanceInformationSB.append(invoice.getPOReference());
 					}
 				}
+				remittanceInformationSB.append(" ");
+				remittanceInformationSB.append(NumberFormat.getNumberInstance(Locale.GERMANY).format(invoice.getGrandTotal()));
 			}
 		}
+		if (remittanceInformationSB.length() >= 136)
+			return remittanceInformationSB.toString().substring(0, 136) + " u.a.";
 
 		return remittanceInformationSB.toString();
 	} // getUnverifiedReferenceLine
