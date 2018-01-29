@@ -417,9 +417,6 @@ public class SEPAPaymentExport implements PaymentExport {
 		unverifiedReferenceLine = getUnverifiedReferenceLine(paySelectionCheck);
 
 		BigDecimal payAmt = paySelectionCheck.getPayAmt();
-		if (payAmt.compareTo(BigDecimal.ZERO) <= 0) {
-			payAmt=payAmt.negate();
-		}
 
 		MBPartner bPartner = MBPartner.get(Env.getCtx(), paySelectionCheck.getC_BPartner_ID());
 		creditorName = bPartner.getName();
@@ -474,9 +471,6 @@ public class SEPAPaymentExport implements PaymentExport {
 		unverifiedReferenceLine = getUnverifiedReferenceLine(paySelectionCheck);
 
 		BigDecimal payAmt = paySelectionCheck.getPayAmt();
-		if (payAmt.compareTo(BigDecimal.ZERO) <= 0) {
-			payAmt=payAmt.negate();
-		}
 
 		MBPartner bPartner = MBPartner.get(Env.getCtx(), paySelectionCheck.getC_BPartner_ID());
 		debitorName = bPartner.getName();
