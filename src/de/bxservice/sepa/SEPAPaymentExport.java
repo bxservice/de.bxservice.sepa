@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.logging.Level;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -346,7 +347,7 @@ public class SEPAPaymentExport implements PaymentExport {
 
 		paymentInfoElement.appendChild(document.createElement("PmtInfId"))
 				.setTextContent(iSEPA_ConvertSign(paymentInfoId, 35));
-		paymentInfoElement.appendChild(document.createElement("PmtMtd")).setTextContent("TRF");
+		paymentInfoElement.appendChild(document.createElement("PmtMtd")).setTextContent("DD");
 		paymentInfoElement.appendChild(document.createElement("BtchBookg")).setTextContent("true");
 		paymentInfoElement.appendChild(document.createElement("NbOfTxs"))
 		.setTextContent(String.valueOf(numberOfTransactions));
@@ -583,6 +584,9 @@ public class SEPAPaymentExport implements PaymentExport {
 	 */
 	private String getUnverifiedReferenceLine(MPaySelectionCheck mpp) {
 		MPaySelectionLine[] mPaySelectionLines = mpp.getPaySelectionLines(true);
+		
+		SimpleDateFormat dateFormat = new SimpleDateFormat("dd.MM.yyyy",Locale.GERMANY);
+
 
 		StringBuffer remittanceInformationSB = new StringBuffer();
 
@@ -590,20 +594,28 @@ public class SEPAPaymentExport implements PaymentExport {
 			String documentNo = null;
 			I_C_Invoice invoice = mPaySelectionLine.getC_Invoice();
 			if (invoice != null) {
-				if (remittanceInformationSB.length() == 0) {
-					String referenceNo = invoice.getC_BPartner().getReferenceNo();
-					if (!Util.isEmpty(referenceNo)) {
-						remittanceInformationSB.append("/CNR/");
-						remittanceInformationSB.append(referenceNo);
-					}
+				if (remittanceInformationSB.length() != 0) {
+					remittanceInformationSB.append(",");
 				}
+
+				remittanceInformationSB.append(dateFormat.format(invoice.getDateInvoiced()));
+				remittanceInformationSB.append(" ");
 				documentNo = invoice.getDocumentNo();
 				if (documentNo != null && documentNo.length() > 0) {
-					remittanceInformationSB.append("/DOC/");
 					remittanceInformationSB.append(documentNo);
-					if (mPaySelectionLine.getDiscountAmt().doubleValue() <= -0.01) {
-						remittanceInformationSB.append("/ ");
-						remittanceInformationSB.append(mPaySelectionLine.getPayAmt());
+				}
+				
+				if (invoice.getC_Order() != null) {
+					String orderNo = invoice.getC_Order().getDocumentNo();
+					if (!Util.isEmpty(orderNo)) {
+						remittanceInformationSB.append("/");
+						remittanceInformationSB.append(orderNo);
+					}
+				}
+				if (invoice.getPOReference() != null) {
+					if (!Util.isEmpty(invoice.getPOReference())) {
+						remittanceInformationSB.append(" ");
+						remittanceInformationSB.append(invoice.getPOReference());
 					}
 				}
 			}
