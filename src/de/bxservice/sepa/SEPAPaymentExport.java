@@ -201,11 +201,13 @@ public class SEPAPaymentExport implements PaymentExport {
 			initiatorName = client.getName();
 
 		msgId = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(firstPaySelection.getCreated());
-		String paymentInfoId = msgId;
 
 		creationDate = new SimpleDateFormat("yyyy-MM-dd").format(System.currentTimeMillis()) + "T"
 				+ new SimpleDateFormat("HH:mm:ss").format(System.currentTimeMillis()) + ".000Z";
 
+		String paymentInfoId = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(System.currentTimeMillis())+ "/TRF";
+
+		
 		//Header
 		Element root = document.createElement(ROOT_ELEMENT);
 		root.setAttribute("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance");
@@ -320,8 +322,12 @@ public class SEPAPaymentExport implements PaymentExport {
 			initiatorName = client.getName();
 
 		msgId = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(firstPaySelection.getCreated());
-		String paymentInfoId = msgId;
-
+		
+		StringBuilder paymentInfoId = new StringBuilder(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(System.currentTimeMillis()));
+		paymentInfoId.append(isB2B ? " /B2B" : " /COR1");
+		paymentInfoId.append(isFirstTransfer ? "-FRST" : "-RCUR");
+		
+		
 		creationDate = new SimpleDateFormat("yyyy-MM-dd").format(System.currentTimeMillis()) + "T"
 				+ new SimpleDateFormat("HH:mm:ss").format(System.currentTimeMillis()) + ".000Z";
 
@@ -347,7 +353,7 @@ public class SEPAPaymentExport implements PaymentExport {
 		Element paymentInfoElement = document.createElement(PAYMENT_INFO_ELEMENT);
 
 		paymentInfoElement.appendChild(document.createElement("PmtInfId"))
-				.setTextContent(iSEPA_ConvertSign(paymentInfoId, 35));
+				.setTextContent(iSEPA_ConvertSign(paymentInfoId.toString(), 35));
 		paymentInfoElement.appendChild(document.createElement("PmtMtd")).setTextContent("DD");
 		paymentInfoElement.appendChild(document.createElement("BtchBookg")).setTextContent("true");
 		paymentInfoElement.appendChild(document.createElement("NbOfTxs"))
