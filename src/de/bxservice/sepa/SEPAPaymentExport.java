@@ -22,9 +22,11 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.sql.Timestamp;
 import java.text.NumberFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Locale;
 import java.util.logging.Level;
 import java.util.zip.ZipEntry;
@@ -50,6 +52,9 @@ import org.compiere.model.MOrg;
 import org.compiere.model.MOrgInfo;
 import org.compiere.model.MPaySelectionCheck;
 import org.compiere.model.MPaySelectionLine;
+import org.compiere.model.MSysConfig;
+import org.compiere.model.Query;
+import org.compiere.model.X_C_NonBusinessDay;
 import org.compiere.util.CLogger;
 import org.compiere.util.Env;
 import org.compiere.util.IBAN;
@@ -243,7 +248,7 @@ public class SEPAPaymentExport implements PaymentExport {
 		
 		I_C_BankAccount bankAccount = firstPaySelection.getC_BankAccount();
 		
-		String executionDate = new SimpleDateFormat("yyyy-MM-dd").format(firstPaySelection.getPayDate());
+		String executionDate = new SimpleDateFormat("yyyy-MM-dd").format(getShiftedDate(firstPaySelection.getPayDate()));
 		String dbtr_Name = MOrg.get(Env.getCtx(), firstPaySelection.getAD_Org_ID()).getName();
 		String dbtrAcct_IBAN = IBAN.normalizeIBAN(bankAccount.getIBAN());
 		String dbtrAcct_BIC = bankAccount.getC_Bank().getSwiftCode();
@@ -366,7 +371,7 @@ public class SEPAPaymentExport implements PaymentExport {
 		
 		I_C_BankAccount bankAccount = firstPaySelection.getC_BankAccount();
 		
-		String executionDate = new SimpleDateFormat("yyyy-MM-dd").format(firstPaySelection.getPayDate());
+		String executionDate = new SimpleDateFormat("yyyy-MM-dd").format(getShiftedDate(firstPaySelection.getPayDate()));
 		String dbtr_Name = MOrg.get(Env.getCtx(), firstPaySelection.getAD_Org_ID()).getName();
 		String dbtrAcct_IBAN = IBAN.normalizeIBAN(bankAccount.getIBAN());
 		String dbtrAcct_BIC = bankAccount.getC_Bank().getSwiftCode();
@@ -749,6 +754,50 @@ public class SEPAPaymentExport implements PaymentExport {
 
 	public void setDirectDebit(boolean isDirectDebit) {
 		this.directDebit = isDirectDebit;
+	}
+	
+	/**
+	 * Adds n days to the original date
+	 * @param originalDate
+	 * @return date shifted n days
+	 */
+	private Timestamp getShiftedDate(Timestamp originalDate) {
+		Calendar cal = Calendar.getInstance();
+		cal.setTime(originalDate);
+		cal.add(Calendar.DAY_OF_WEEK, MSysConfig.getIntValue("SEPA_SHIFT_DAYS", 0, Env.getAD_Client_ID(Env.getCtx())));
+		
+		while (!isValidBankDate(cal)) {
+			if (cal.get(Calendar.DAY_OF_WEEK) == Calendar.FRIDAY)
+				cal.add(Calendar.DAY_OF_WEEK, 3);
+			else if (cal.get(Calendar.DAY_OF_WEEK) == Calendar.SATURDAY)
+				cal.add(Calendar.DAY_OF_WEEK, 2);
+			else 
+				cal.add(Calendar.DAY_OF_WEEK, 1);
+		}
+		
+		return new Timestamp(cal.getTime().getTime());
+	}
+
+	/**
+	 * Checks if the date is valid for the bank calendar 
+	 */
+	private boolean isValidBankDate(Calendar originalDate) {
+		int dow = originalDate.get(Calendar.DAY_OF_WEEK);
+		boolean isWeekday = ((dow >= Calendar.MONDAY) && (dow <= Calendar.FRIDAY));
+
+		if (!isWeekday)
+			return false;
+		
+		X_C_NonBusinessDay nonWorkingDay = new Query(Env.getCtx(), X_C_NonBusinessDay.Table_Name, 
+				"TRUNC(" + X_C_NonBusinessDay.COLUMNNAME_Date1 + ")=? AND "+ X_C_NonBusinessDay.COLUMNNAME_Name +  " LIKE ?", null)
+				.setParameters(new Object[]{new Timestamp(originalDate.getTime().getTime()), MSysConfig.getValue("SEPA_BANKHOLIDAY_KEYWORD", "", Env.getAD_Client_ID(Env.getCtx()))})
+				.setOnlyActiveRecords(true)
+				.first();
+		
+		if (nonWorkingDay != null)
+			return false;
+
+		return true;
 	}
 
 } // PaymentExport
