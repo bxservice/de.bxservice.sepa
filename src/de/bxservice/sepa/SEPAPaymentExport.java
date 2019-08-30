@@ -792,6 +792,7 @@ public class SEPAPaymentExport implements PaymentExport {
 				"TRUNC(" + X_C_NonBusinessDay.COLUMNNAME_Date1 + ")=? AND "+ X_C_NonBusinessDay.COLUMNNAME_Name +  " LIKE ?", null)
 				.setParameters(new Object[]{new Timestamp(originalDate.getTime().getTime()), MSysConfig.getValue("SEPA_BANKHOLIDAY_KEYWORD", "", Env.getAD_Client_ID(Env.getCtx()))})
 				.setOnlyActiveRecords(true)
+				.setClient_ID()
 				.first();
 		
 		if (nonWorkingDay != null)
