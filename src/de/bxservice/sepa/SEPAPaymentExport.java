@@ -152,12 +152,12 @@ public class SEPAPaymentExport implements PaymentExport {
 			String lsString = bpBankAccount.get_ValueAsString(MBPBankAccountHelper.COLUMNNAME_SEPASDDSCHEME);
 			if (lsString == "")
 				throw new AdempiereException("Bank Account without a SEPA Mandate Type set: "+ bpBankAccount.getA_Name());
-			isFirstTransfer = !bpBankAccount.get_ValueAsBoolean(MBPBankAccountHelper.COLUMNNAME_ISTRANSFERRED);
+			isFirstTransfer = !bpBankAccount.get_ValueAsBoolean(MBPBankAccountHelper.COLUMNNAME_ISRECURRENT);
 			
 			if (lsString.equals("B2B")) {
 				if (isFirstTransfer) {
 					b2bFirstPayments.add(check);
-					bpBankAccount.set_ValueNoCheck(MBPBankAccountHelper.COLUMNNAME_ISTRANSFERRED, Boolean.TRUE);
+					bpBankAccount.set_ValueNoCheck(MBPBankAccountHelper.COLUMNNAME_ISRECURRENT, Boolean.TRUE);
 					bpBankAccount.saveEx();
 				}
 				else 
@@ -165,7 +165,7 @@ public class SEPAPaymentExport implements PaymentExport {
 			} else if (lsString.equals("COR1")) {
 				if (isFirstTransfer) {
 					cor1FirstPayments.add(check);
-					bpBankAccount.set_ValueNoCheck(MBPBankAccountHelper.COLUMNNAME_ISTRANSFERRED, Boolean.TRUE);
+					bpBankAccount.set_ValueNoCheck(MBPBankAccountHelper.COLUMNNAME_ISRECURRENT, Boolean.TRUE);
 					bpBankAccount.saveEx();
 				}
 				else 

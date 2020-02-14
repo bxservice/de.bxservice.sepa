@@ -15,7 +15,7 @@ public class MBPBankAccountHelper {
 	 * german "Lastschriftart", has one of the scheme names as string.
 	 */
 	public static final String COLUMNNAME_SEPASDDSCHEME="SepaSddScheme";
-	public static final String COLUMNNAME_ISTRANSFERRED="IsTransferred";
+	public static final String COLUMNNAME_ISRECURRENT="IsRecurrent";
 	public static final String COLUMNNAME_MNDTID="MndtId";
 	public static final String COLUMNNAME_DATEDOC="DateDoc";
 	public static final String COLUMNNAME_IBAN="IBAN";
