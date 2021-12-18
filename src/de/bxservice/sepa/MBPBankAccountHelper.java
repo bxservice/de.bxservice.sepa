@@ -18,5 +18,4 @@ public class MBPBankAccountHelper {
 	public static final String COLUMNNAME_ISTRANSFERRED="IsTransferred";
 	public static final String COLUMNNAME_MNDTID="MndtId";
 	public static final String COLUMNNAME_DATEDOC="DateDoc";
-	public static final String COLUMNNAME_IBAN="IBAN";
 }
