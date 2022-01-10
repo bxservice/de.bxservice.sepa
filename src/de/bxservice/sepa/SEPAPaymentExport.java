@@ -607,7 +607,7 @@ public class SEPAPaymentExport implements PaymentExport {
 				remittanceInformationSB.append(dateFormat.format(invoice.getDateInvoiced()));
 				remittanceInformationSB.append(" ");
 				documentNo = invoice.getDocumentNo();
-				if (documentNo != null && documentNo.length() > 0) {
+				if (!Util.isEmpty(documentNo)) {
 					remittanceInformationSB.append(documentNo);
 				}
 				
@@ -618,14 +618,16 @@ public class SEPAPaymentExport implements PaymentExport {
 						remittanceInformationSB.append(orderNo);
 					}
 				}
-				if (invoice.getPOReference() != null) {
-					if (!Util.isEmpty(invoice.getPOReference())) {
-						remittanceInformationSB.append(" ");
-						remittanceInformationSB.append(invoice.getPOReference());
-					}
+				if (!Util.isEmpty(invoice.getPOReference())) {
+					remittanceInformationSB.append(" ");
+					remittanceInformationSB.append(invoice.getPOReference());
 				}
 				remittanceInformationSB.append(" ");
 				remittanceInformationSB.append(NumberFormat.getNumberInstance(Locale.GERMANY).format(invoice.getGrandTotal()));
+			}
+			if (!Util.isEmpty(mPaySelectionLine.getDescription())) {
+				remittanceInformationSB.append(" ");
+				remittanceInformationSB.append(mPaySelectionLine.getDescription());
 			}
 		}
 		if (remittanceInformationSB.length() >= 136)
