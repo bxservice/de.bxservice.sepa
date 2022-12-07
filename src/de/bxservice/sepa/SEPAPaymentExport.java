@@ -371,7 +371,8 @@ public class SEPAPaymentExport implements PaymentExport {
 		
 		MBankAccount bankAccount = MBankAccount.get(firstPaySelection.getC_BankAccount_ID());
 		
-		String executionDate = new SimpleDateFormat("yyyy-MM-dd").format(getShiftedDate(firstPaySelection.getPayDate()));
+		Timestamp loginDate = Env.getContextAsDate(Env.getCtx(), "#Date");
+		String executionDate = new SimpleDateFormat("yyyy-MM-dd").format(getShiftedDate(loginDate));
 		String dbtr_Name = MOrg.get(Env.getCtx(), firstPaySelection.getAD_Org_ID()).getName();
 		String dbtrAcct_IBAN = IBAN.normalizeIBAN(bankAccount.getIBAN());
 		String dbtrAcct_BIC = bankAccount.getC_Bank().getSwiftCode();
