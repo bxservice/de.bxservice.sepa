@@ -41,15 +41,15 @@ import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 
 import org.adempiere.exceptions.AdempiereException;
-import org.compiere.model.I_C_BankAccount;
-import org.compiere.model.I_C_Invoice;
-import org.compiere.model.I_C_PaySelection;
 import org.compiere.model.MBPBankAccount;
 import org.compiere.model.MBPartner;
+import org.compiere.model.MBankAccount;
 import org.compiere.model.MClient;
 import org.compiere.model.MCurrency;
+import org.compiere.model.MInvoice;
 import org.compiere.model.MOrg;
 import org.compiere.model.MOrgInfo;
+import org.compiere.model.MPaySelection;
 import org.compiere.model.MPaySelectionCheck;
 import org.compiere.model.MPaySelectionLine;
 import org.compiere.model.MSysConfig;
@@ -198,7 +198,7 @@ public class SEPAPaymentExport implements PaymentExport {
 		}
 
 		MPaySelectionCheck firstPaySelectionCheck = checks[0];
-		I_C_PaySelection firstPaySelection = firstPaySelectionCheck.getC_PaySelection();
+		MPaySelection firstPaySelection = firstPaySelectionCheck.getParent();
 
 		if (firstPaySelection.getAD_Org_ID() != 0)
 			initiatorName = MOrg.get(Env.getCtx(), firstPaySelection.getAD_Org_ID()).getName();
@@ -246,7 +246,7 @@ public class SEPAPaymentExport implements PaymentExport {
 		PmtTpInfElement.appendChild(document.createElement("SvcLvl"))
 					.appendChild(document.createElement("Cd")).setTextContent("SEPA");
 		
-		I_C_BankAccount bankAccount = firstPaySelection.getC_BankAccount();
+		MBankAccount bankAccount = MBankAccount.get(firstPaySelection.getC_BankAccount_ID());
 		
 		String executionDate = new SimpleDateFormat("yyyy-MM-dd").format(getShiftedDate(firstPaySelection.getPayDate()));
 		String dbtr_Name = MOrg.get(Env.getCtx(), firstPaySelection.getAD_Org_ID()).getName();
@@ -319,7 +319,7 @@ public class SEPAPaymentExport implements PaymentExport {
 		}
 
 		MPaySelectionCheck firstPaySelectionCheck = checks[0];
-		I_C_PaySelection firstPaySelection = firstPaySelectionCheck.getC_PaySelection();
+		MPaySelection firstPaySelection = firstPaySelectionCheck.getParent();
 
 		if (firstPaySelection.getAD_Org_ID() != 0)
 			initiatorName = MOrg.get(Env.getCtx(), firstPaySelection.getAD_Org_ID()).getName();
@@ -369,7 +369,7 @@ public class SEPAPaymentExport implements PaymentExport {
 		PmtTpInfElement.appendChild(document.createElement("SvcLvl"))
 					.appendChild(document.createElement("Cd")).setTextContent("SEPA");
 		
-		I_C_BankAccount bankAccount = firstPaySelection.getC_BankAccount();
+		MBankAccount bankAccount = MBankAccount.get(firstPaySelection.getC_BankAccount_ID());
 		
 		String executionDate = new SimpleDateFormat("yyyy-MM-dd").format(getShiftedDate(firstPaySelection.getPayDate()));
 		String dbtr_Name = MOrg.get(Env.getCtx(), firstPaySelection.getAD_Org_ID()).getName();
@@ -594,11 +594,11 @@ public class SEPAPaymentExport implements PaymentExport {
 		SimpleDateFormat dateFormat = new SimpleDateFormat("dd.MM.yyyy",Locale.GERMANY);
 
 
-		StringBuffer remittanceInformationSB = new StringBuffer();
+		StringBuilder remittanceInformationSB = new StringBuilder();
 
 		for (MPaySelectionLine mPaySelectionLine : mPaySelectionLines) {
 			String documentNo = null;
-			I_C_Invoice invoice = mPaySelectionLine.getC_Invoice();
+			MInvoice invoice = MInvoice.get(mPaySelectionLine.getC_Invoice_ID());
 			if (invoice != null) {
 				if (remittanceInformationSB.length() != 0) {
 					remittanceInformationSB.append(",");
@@ -607,7 +607,7 @@ public class SEPAPaymentExport implements PaymentExport {
 				remittanceInformationSB.append(dateFormat.format(invoice.getDateInvoiced()));
 				remittanceInformationSB.append(" ");
 				documentNo = invoice.getDocumentNo();
-				if (documentNo != null && documentNo.length() > 0) {
+				if (!Util.isEmpty(documentNo)) {
 					remittanceInformationSB.append(documentNo);
 				}
 				
@@ -618,14 +618,21 @@ public class SEPAPaymentExport implements PaymentExport {
 						remittanceInformationSB.append(orderNo);
 					}
 				}
-				if (invoice.getPOReference() != null) {
-					if (!Util.isEmpty(invoice.getPOReference())) {
-						remittanceInformationSB.append(" ");
-						remittanceInformationSB.append(invoice.getPOReference());
-					}
+				if (!Util.isEmpty(invoice.getPOReference())) {
+					remittanceInformationSB.append(" ");
+					remittanceInformationSB.append(invoice.getPOReference());
+				}
+				MBPartner bpartner = MBPartner.get(invoice.getCtx(), invoice.getC_BPartner_ID());
+				if (!Util.isEmpty(bpartner.getReferenceNo())) {
+					remittanceInformationSB.append(" ");
+					remittanceInformationSB.append(bpartner.getReferenceNo());
 				}
 				remittanceInformationSB.append(" ");
 				remittanceInformationSB.append(NumberFormat.getNumberInstance(Locale.GERMANY).format(invoice.getGrandTotal()));
+			}
+			if (!Util.isEmpty(mPaySelectionLine.getDescription())) {
+				remittanceInformationSB.append(" ");
+				remittanceInformationSB.append(mPaySelectionLine.getDescription());
 			}
 		}
 		if (remittanceInformationSB.length() >= 136)
@@ -641,7 +648,7 @@ public class SEPAPaymentExport implements PaymentExport {
 
 		for (MPaySelectionLine mPaySelectionLine : mPaySelectionLines) {
 			String documentNo = null;
-			I_C_Invoice invoice = mPaySelectionLine.getC_Invoice();
+			MInvoice invoice = MInvoice.get(mPaySelectionLine.getC_Invoice_ID());
 			if (invoice != null) {
 				documentNo = invoice.getDocumentNo();
 				if (documentNo != null && documentNo.length() > 0) {

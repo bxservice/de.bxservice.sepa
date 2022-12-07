@@ -2,11 +2,11 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: Bx Service SEPA
 Bundle-SymbolicName: de.bxservice.sepa;singleton:=true
-Bundle-Version: 1.0.0.qualifier
-Bundle-RequiredExecutionEnvironment: JavaSE-1.8
+Bundle-Version: 1.0.1.qualifier
+Bundle-RequiredExecutionEnvironment: JavaSE-11
 Service-Component: OSGI-INF/*.xml
-Require-Bundle: org.adempiere.base;bundle-version="4.1.0",
- org.adempiere.plugin.utils;bundle-version="5.1.0"
+Require-Bundle: org.adempiere.base;bundle-version="8.2.0",
+ org.adempiere.plugin.utils;bundle-version="8.2.0"
 Bundle-ActivationPolicy: lazy
 Bundle-Activator: org.adempiere.plugin.utils.Incremental2PackActivator
 Automatic-Module-Name: de.bxservice.sepa
