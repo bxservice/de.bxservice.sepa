@@ -83,7 +83,7 @@ public class SEPAPaymentExport implements PaymentExport {
 	
 	//SEPA file type
 	private static final String SEPA_CREDIT_TRANSFER = "pain.001.003.03"; //Use for payments
-	private static final String SEPA_DIRECT_DEBIT    = "pain.008.003.02"; //Use for collection
+	private static final String SEPA_DIRECT_DEBIT    = "pain.008.001.02"; //Use for collection
 
 	private ArrayList<MPaySelectionCheck> b2bFirstPayments;
 	private ArrayList<MPaySelectionCheck> cor1FirstPayments;
