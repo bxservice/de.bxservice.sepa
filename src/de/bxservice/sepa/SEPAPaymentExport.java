@@ -294,10 +294,13 @@ public class SEPAPaymentExport implements PaymentExport {
 	
 	private File generateDirectDebitFile(MPaySelectionCheck[] checks, boolean isB2B, boolean isFirstTransfer, StringBuffer err) throws Exception {
 		
+		String fileType = isB2B ? "B2B" : "COR1";
+		String transerType = isFirstTransfer ? "FRST" : "RCUR";
+		
 		StringBuilder fileName = new StringBuilder("SEPA-Direct-Debit-");
 		fileName.append(new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(System.currentTimeMillis()));
-		fileName.append(isB2B ? "B2B" : "COR1");
-		fileName.append(isFirstTransfer ? "FRST" : "RCUR");
+		fileName.append(fileType);
+		fileName.append(transerType);
 		File xmlFile = File.createTempFile(fileName.toString(), ".xml");
 		
 		DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
@@ -326,11 +329,13 @@ public class SEPAPaymentExport implements PaymentExport {
 		else
 			initiatorName = client.getName();
 
-		msgId = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(firstPaySelection.getCreated());
+		msgId = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(firstPaySelection.getCreated()) + "/" + fileType + "-" + transerType;
 		
 		StringBuilder paymentInfoId = new StringBuilder(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(System.currentTimeMillis()));
-		paymentInfoId.append(isB2B ? " /B2B" : " /COR1");
-		paymentInfoId.append(isFirstTransfer ? "-FRST" : "-RCUR");
+		paymentInfoId.append(" /");
+		paymentInfoId.append(fileType);
+		paymentInfoId.append("-");
+		paymentInfoId.append(transerType);
 		
 		
 		creationDate = new SimpleDateFormat("yyyy-MM-dd").format(System.currentTimeMillis()) + "T"
@@ -388,8 +393,8 @@ public class SEPAPaymentExport implements PaymentExport {
 		}
 		
 		PmtTpInfElement.appendChild(document.createElement("LclInstrm"))
-					.appendChild(document.createElement("Cd")).setTextContent(isB2B ? "B2B" : "COR1");
-		PmtTpInfElement.appendChild(document.createElement("SeqTp")).setTextContent(isFirstTransfer ? "FRST" : "RCUR");
+					.appendChild(document.createElement("Cd")).setTextContent(fileType);
+		PmtTpInfElement.appendChild(document.createElement("SeqTp")).setTextContent(transerType);
 		paymentInfoElement.appendChild(PmtTpInfElement);
 
 		paymentInfoElement.appendChild(document.createElement("ReqdColltnDt")).setTextContent(iSEPA_ConvertSign(executionDate));
