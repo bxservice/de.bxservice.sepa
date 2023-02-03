@@ -113,8 +113,8 @@ public class SEPAPaymentExport implements PaymentExport {
 		
 		int noLines = checks.length;
 		try {
-			ZipOutputStream out = new ZipOutputStream(new FileOutputStream(file));
 			if (isDirectDebit()) {
+				ZipOutputStream out = new ZipOutputStream(new FileOutputStream(file));
 				setDifferentPaymentTypes(checks);
 				
 				if (!b2bFirstPayments.isEmpty())
@@ -125,11 +125,10 @@ public class SEPAPaymentExport implements PaymentExport {
 					addToZipFile(generateDirectDebitFile(cor1FirstPayments.toArray(new MPaySelectionCheck[cor1FirstPayments.size()]), false, true, err), out);
 				if (!cor1RcurPayments.isEmpty())
 					addToZipFile(generateDirectDebitFile(cor1RcurPayments.toArray(new MPaySelectionCheck[cor1FirstPayments.size()]), false, false, err), out);
-				
+				out.close();
 			} else {
-				addToZipFile(generateCreditTransferFile(checks, err), out);
+				generateCreditTransferFile(file, checks, err);
 			}
-			out.close();
 			//noLines = numberOfTransactions;
 		} catch (Exception e) {
 				err.append(e.toString());
@@ -174,10 +173,7 @@ public class SEPAPaymentExport implements PaymentExport {
 		}
 	}
 
-	private File generateCreditTransferFile(MPaySelectionCheck[] checks, StringBuffer err) throws Exception {
-		
-		String creationFileDate = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss").format(System.currentTimeMillis()) ;
-		File xmlFile = File.createTempFile("SEPA-Credit-Transfer-" + creationFileDate, ".xml");
+	private File generateCreditTransferFile(File xmlFile, MPaySelectionCheck[] checks, StringBuffer err) throws Exception {
 		
 		DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
 		DocumentBuilder builder = dbf.newDocumentBuilder();
@@ -741,7 +737,10 @@ public class SEPAPaymentExport implements PaymentExport {
 
 	@Override
 	public String getFilenameSuffix() {
-		return ".zip";
+		if (isDirectDebit())
+			return ".zip";
+		else
+			return ".xml";
 	}
 
 	@Override
