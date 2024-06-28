@@ -5,8 +5,8 @@ Bundle-SymbolicName: de.bxservice.sepa;singleton:=true
 Bundle-Version: 1.0.1.qualifier
 Bundle-RequiredExecutionEnvironment: JavaSE-17
 Service-Component: OSGI-INF/*.xml
-Require-Bundle: org.adempiere.base;bundle-version="8.2.0",
- org.adempiere.plugin.utils;bundle-version="8.2.0"
+Require-Bundle: org.adempiere.base;bundle-version="11.0.0",
+ org.adempiere.plugin.utils;bundle-version="11.0.0"
 Bundle-ActivationPolicy: lazy
 Bundle-Activator: org.adempiere.plugin.utils.Incremental2PackActivator
 Automatic-Module-Name: de.bxservice.sepa
