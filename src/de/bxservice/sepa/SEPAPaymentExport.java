@@ -446,6 +446,8 @@ public class SEPAPaymentExport implements PaymentExport {
 			err.append("IBAN " + CdtrAcct_IBAN + " is not valid. Creditor: " + creditorName);
 			throw new Exception();
 		}
+		if (MSysConfig.getBooleanValue("SEPA_USE_BPBANKACCOUNT_NAME", false, Env.getAD_Client_ID(Env.getCtx())))
+			creditorName = bpBankAccount.getA_Name();
 
 		Element CdtTrfTxInfElement = document.createElement("CdtTrfTxInf");
 
@@ -500,6 +502,8 @@ public class SEPAPaymentExport implements PaymentExport {
 			err.append("IBAN " + dbtrAcct_IBAN + " is not valid. Creditor: " + debitorName);
 			throw new Exception();
 		}
+		if (MSysConfig.getBooleanValue("SEPA_USE_BPBANKACCOUNT_NAME", false, Env.getAD_Client_ID(Env.getCtx())))
+			debitorName = bpBankAccount.getA_Name();
 
 		Element drctDbtTxInfElement = document.createElement("DrctDbtTxInf");
 
