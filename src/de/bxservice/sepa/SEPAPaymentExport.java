@@ -43,10 +43,12 @@ import javax.xml.transform.stream.StreamResult;
 import org.adempiere.exceptions.AdempiereException;
 import org.compiere.model.MBPBankAccount;
 import org.compiere.model.MBPartner;
+import org.compiere.model.MBank;
 import org.compiere.model.MBankAccount;
 import org.compiere.model.MClient;
 import org.compiere.model.MCurrency;
 import org.compiere.model.MInvoice;
+import org.compiere.model.MOrder;
 import org.compiere.model.MOrg;
 import org.compiere.model.MOrgInfo;
 import org.compiere.model.MPaySelection;
@@ -247,7 +249,7 @@ public class SEPAPaymentExport implements PaymentExport {
 		String executionDate = new SimpleDateFormat("yyyy-MM-dd").format(getShiftedDate(firstPaySelection.getPayDate()));
 		String dbtr_Name = MOrg.get(Env.getCtx(), firstPaySelection.getAD_Org_ID()).getName();
 		String dbtrAcct_IBAN = IBAN.normalizeIBAN(bankAccount.getIBAN());
-		String dbtrAcct_BIC = bankAccount.getC_Bank().getSwiftCode();
+		String dbtrAcct_BIC = MBank.get(bankAccount.getC_Bank_ID()).getSwiftCode();
 
 		if (!IBAN.isValid(dbtrAcct_IBAN)) {
 			err.append("IBAN " + dbtrAcct_IBAN + " is not valid.");
@@ -376,7 +378,7 @@ public class SEPAPaymentExport implements PaymentExport {
 		String executionDate = new SimpleDateFormat("yyyy-MM-dd").format(getShiftedDate(loginDate));
 		String dbtr_Name = MOrg.get(Env.getCtx(), firstPaySelection.getAD_Org_ID()).getName();
 		String dbtrAcct_IBAN = IBAN.normalizeIBAN(bankAccount.getIBAN());
-		String dbtrAcct_BIC = bankAccount.getC_Bank().getSwiftCode();
+		String dbtrAcct_BIC = MBank.get(bankAccount.getC_Bank_ID()).getSwiftCode();
 
 		if (!IBAN.isValid(dbtrAcct_IBAN)) {
 			err.append("IBAN " + dbtrAcct_IBAN + " is not valid.");
@@ -617,8 +619,9 @@ public class SEPAPaymentExport implements PaymentExport {
 					remittanceInformationSB.append(documentNo);
 				}
 				
-				if (invoice.getC_Order() != null) {
-					String orderNo = invoice.getC_Order().getDocumentNo();
+				MOrder order = new MOrder(Env.getCtx(), invoice.getC_Order_ID(), null);
+				if (order != null) {
+					String orderNo = order.getDocumentNo();
 					if (!Util.isEmpty(orderNo)) {
 						remittanceInformationSB.append("/");
 						remittanceInformationSB.append(orderNo);
