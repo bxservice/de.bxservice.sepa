@@ -85,7 +85,7 @@ public class SEPAPaymentExport implements PaymentExport {
 	
 	//SEPA file type
 	private static final String SEPA_CREDIT_TRANSFER = "pain.001.003.03"; //Use for payments
-	private static final String SEPA_DIRECT_DEBIT    = "pain.008.001.02"; //Use for collection
+	private static final String SEPA_DIRECT_DEBIT    = "pain.008.001.08"; //Use for collection
 
 	private ArrayList<MPaySelectionCheck> b2bFirstPayments;
 	private ArrayList<MPaySelectionCheck> cor1FirstPayments;
@@ -292,7 +292,7 @@ public class SEPAPaymentExport implements PaymentExport {
 	
 	private File generateDirectDebitFile(MPaySelectionCheck[] checks, boolean isB2B, boolean isFirstTransfer, StringBuffer err) throws Exception {
 		
-		String fileType = isB2B ? "B2B" : "COR1";
+		String fileType = isB2B ? "B2B" : "CORE";
 		String transerType = isFirstTransfer ? "FRST" : "RCUR";
 		
 		StringBuilder fileName = new StringBuilder("SEPA-Direct-Debit-");
@@ -401,7 +401,7 @@ public class SEPAPaymentExport implements PaymentExport {
 		paymentInfoElement.appendChild(document.createElement("CdtrAcct")).appendChild(document.createElement("Id"))
 						.appendChild(document.createElement("IBAN")).setTextContent(dbtrAcct_IBAN);
 		paymentInfoElement.appendChild(document.createElement("CdtrAgt"))
-						.appendChild(document.createElement("FinInstnId")).appendChild(document.createElement("BIC"))
+						.appendChild(document.createElement("FinInstnId")).appendChild(document.createElement("BICFI"))
 						.setTextContent(iSEPA_ConvertSign(dbtrAcct_BIC));
 		paymentInfoElement.appendChild(document.createElement("ChrgBr")).setTextContent("SLEV");
 		
@@ -544,7 +544,7 @@ public class SEPAPaymentExport implements PaymentExport {
 		drctDbtTxInfElement.appendChild(drctDbtTxElement);
 		
 		drctDbtTxInfElement.appendChild(document.createElement("DbtrAgt"))
-							.appendChild(document.createElement("FinInstnId")).appendChild(document.createElement("BIC"))
+							.appendChild(document.createElement("FinInstnId")).appendChild(document.createElement("BICFI"))
 							.setTextContent(iSEPA_ConvertSign(dbtrAcct_BIC));
 
 		drctDbtTxInfElement.appendChild(document.createElement("Dbtr")).appendChild(document.createElement("Nm"))
